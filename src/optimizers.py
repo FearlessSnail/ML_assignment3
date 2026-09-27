@@ -112,7 +112,8 @@ def scg(obj, w, monitor, rng, sigma=1e-4, lambda_init=1e-6):
         k += 1
 
 
-def leapfrog(obj, w, monitor, rng, dt=0.5, delta=1.0, m=3, delta1=1e-3, epsilon=1e-8):
+def leapfrog(obj, w, monitor, rng, dt=0.5, delta=1.0, m=3, delta1=1e-3, epsilon=1e-8,
+             trace=None):
     """
     LeapFrog dynamic minimisation, LFOP1(b) (Snyman 1982, 1983).
     """
@@ -130,6 +131,7 @@ def leapfrog(obj, w, monitor, rng, dt=0.5, delta=1.0, m=3, delta1=1e-3, epsilon=
     k = 0
 
     while True:
+        limited = False
         if restart_x is None:
             v_norm = np.linalg.norm(v)
             if v_norm * dt < delta:
@@ -137,6 +139,7 @@ def leapfrog(obj, w, monitor, rng, dt=0.5, delta=1.0, m=3, delta1=1e-3, epsilon=
                 dt *= p
             else:
                 v *= delta / (dt * max(v_norm, 1e-30))
+                limited = True
             
             # 5b. too many uphill steps
             if s >= m:
@@ -151,6 +154,8 @@ def leapfrog(obj, w, monitor, rng, dt=0.5, delta=1.0, m=3, delta1=1e-3, epsilon=
             x_next, restart_x = restart_x, None
 
         _, g = obj.error_grad(x_next)
+        if trace is not None:
+            trace.append((obj.cu, dt, limited))
         a_next = -g
         v_next = v + a_next * dt
 

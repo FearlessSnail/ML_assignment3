@@ -10,8 +10,12 @@ import numpy as np
 def sigmoid(a):
     return 1.0 / (1.0 + np.exp(-np.clip(a, -500.0, 500.0)))
 
+def relu(a):
+    return np.maximum(a, 0.0)
+
 ACTIVATIONS = {
-    "sigmoid": (sigmoid, lambda g, z: g * z * (1.0 - z))
+    "sigmoid": (sigmoid, lambda g, z: g * z * (1.0 - z)),
+    "relu": (relu, lambda g, z: g * (z > 0)),
 }
 
 def add_bias(X):
@@ -19,12 +23,13 @@ def add_bias(X):
 
 
 class Net:
-    def __init__(self, n_in, n_hidden, n_out, linear_output=False):
+    def __init__(self, n_in, n_hidden, n_out, linear_output=False, activation="sigmoid"):
         self.n_in = n_in
         self.n_hidden = n_hidden
         self.n_out = n_out
 
         self.linear_output = linear_output
+        self.hidden_function, self.hidden_backward = ACTIVATIONS[activation]
 
         self.n_weights = (n_in + 1) * n_hidden + (n_hidden + 1) * n_out
         self._cut = (n_in + 1) * n_hidden
@@ -41,7 +46,7 @@ class Net:
 
     def predict(self, w, X):
         W1, W2 = self.unpack(w)
-        Z = sigmoid(add_bias(X) @ W1)
+        Z = self.hidden_function(add_bias(X) @ W1)
         A = add_bias(Z) @ W2
         return A if self.linear_output else sigmoid(A)
 
@@ -53,7 +58,7 @@ class Net:
         # forward pass
         W1, W2 = self.unpack(w)
         Xb = add_bias(X)
-        Z = sigmoid(Xb @ W1)
+        Z = self.hidden_function(Xb @ W1)
         Zb = add_bias(Z)
         A = Zb @ W2
         Y = A if self.linear_output else sigmoid(A)
@@ -63,8 +68,7 @@ class Net:
         D2 = (Y - T) / len(X)
         if not self.linear_output:
             D2 *= Y * (1.0 - Y)
-            
-        D1 = (D2 @ W2[:-1].T) * Z * (1.0 - Z)
+        D1 = self.hidden_backward(D2 @ W2[:-1].T, Z)
 
         return E, np.concatenate([(Xb.T @ D1).ravel(), (Zb.T @ D2).ravel()])
 
@@ -76,17 +80,18 @@ def check_gradient(seed=0):
     rng = np.random.default_rng(seed)
     worst = 0.0
 
-    for linear in (False, True):
-        net = Net(3, 4, 2, linear_output=linear)
-        w = net.initial_weights(rng)
-        X, T = rng.normal(size=(10, 3)), rng.uniform(size=(10, 2))
-        _, g = net.error_grad(w, X, T)
+    for activation in ACTIVATIONS:
+        for linear in (False, True):
+            net = Net(3, 4, 2, linear_output=linear, activation=activation)
+            w = net.initial_weights(rng)
+            X, T = rng.normal(size=(10, 3)), rng.uniform(size=(10, 2))
+            _, g = net.error_grad(w, X, T)
 
-        for i in rng.choice(net.n_weights, 15, replace=False):
-            step = np.zeros_like(w)
-            step[i] = 1e-6
-            fd = (net.error(w + step, X, T) - net.error(w - step, X, T)) / 2e-6
-            worst = max(worst, abs(fd - g[i]) / max(1e-12, abs(fd)))
+            for i in rng.choice(net.n_weights, 15, replace=False):
+                step = np.zeros_like(w)
+                step[i] = 1e-6
+                fd = (net.error(w + step, X, T) - net.error(w - step, X, T)) / 2e-6
+                worst = max(worst, abs(fd - g[i]) / max(1e-12, abs(fd)))
 
     return worst
 

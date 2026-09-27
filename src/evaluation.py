@@ -61,22 +61,26 @@ def measure(net, w, X, T, y, kind):
     return dict(error=mse, accuracy=np.nan, mse=mse)
 
 
-def run_trial(problem_name, algorithm, hidden, params, seed, budget=None):
+
+def run_trial(problem_name, algorithm, hidden, params, seed, budget=None, curve=False,
+              activation="sigmoid"):
     """
     One independent training run: split, initialise, train, measure.
     """
+    
     # split
     problem = datasets.get(problem_name)
     split = datasets.split(problem, seed)
 
     # initialise
     net = Net(split.Xtr.shape[1], hidden, split.Ttr.shape[1],
-              linear_output=(problem.kind == "regression"))
+              linear_output=(problem.kind == "regression"), activation=activation)
     w0 = net.initial_weights(np.random.default_rng(seed))
 
     # train
     obj = Objective(net, split.Xtr, split.Ttr)
     monitor = Monitor(obj, net, split, budget or problem.budget)
+    monitor(w0)
 
     start = time.perf_counter()
     with np.errstate(over="ignore", invalid="ignore"):
@@ -90,7 +94,7 @@ def run_trial(problem_name, algorithm, hidden, params, seed, budget=None):
     # measure
     w = monitor.best_w
     result = dict(problem=problem_name, kind=problem.kind, algorithm=algorithm,
-                  hidden=hidden, seed=seed,
+                  activation=activation, hidden=hidden, seed=seed,
                   iterations=iterations, seconds=seconds,
                   cu_used=obj.cu, cu_at_best=monitor.best_cu,
                   train_cost=net.error(w, split.Xtr, split.Ttr),
@@ -102,6 +106,8 @@ def run_trial(problem_name, algorithm, hidden, params, seed, budget=None):
             result[f"{name}_{key}"] = value
 
     result.update({f"p_{k}": v for k, v in params.items()})
+    if curve:
+        result["curve"] = np.array(monitor.curve)
 
     return result
 

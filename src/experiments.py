@@ -53,7 +53,8 @@ def grid(spec):
 def _work(job):
     params = json.loads(job["params"])
     result = run_trial(job["problem"], job["algorithm"], job["hidden"], params,
-                       job["seed"], curve=job.get("curve", False))
+                       job["seed"], curve=job.get("curve", False),
+                       activation=job["activation"])
 
     result["params"] = job["params"]
     result["stage"] = job["stage"]
@@ -87,10 +88,10 @@ def one_se_rule(frame, value="val_error"):
 
 
 # ----------------------- stage A ------------------------
-def stage_hidden(problems, jobs_n, out):
+def stage_hidden(problems, jobs_n, out, activation="sigmoid", grid=HIDDEN_GRID):
     jobs = [dict(stage="hidden", problem=p, algorithm=a, hidden=h,
-                 params=json.dumps(DEFAULTS[a]), seed=s)
-            for p in problems for a in DEFAULTS for h in HIDDEN_GRID for s in HIDDEN_SEEDS]
+                 params=json.dumps(DEFAULTS[a]), seed=s, activation=activation)
+            for p in problems for a in DEFAULTS for h in grid for s in HIDDEN_SEEDS]
 
     frame = pd.DataFrame(run_jobs(jobs, jobs_n, "stage A (hidden units)"))
     frame.to_csv(out / "stage_a_hidden_units.csv", index=False)
@@ -121,10 +122,10 @@ def select_hidden(frame, out, name="selected_hidden_units.csv"):
 
 
 # ----------------------- stage B ------------------------
-def stage_params(problems, hidden, jobs_n, out, quick=False):
+def stage_params(problems, hidden, jobs_n, out, activation="sigmoid", quick=False):
     grids = QUICK_GRIDS if quick else PARAM_GRIDS
     jobs = [dict(stage="params", problem=p, algorithm=a, hidden=hidden[p],
-                 params=json.dumps(c), seed=s)
+                 params=json.dumps(c), seed=s, activation=activation)
             for p in problems for a in grids for c in grid(grids[a]) for s in PARAM_SEEDS]
 
     frame = pd.DataFrame(run_jobs(jobs, jobs_n, "stage B (control parameters)"))
@@ -155,7 +156,7 @@ def select_params(frame, out):
 
 
 # ----------------------- stage A2 ------------------------
-def stage_confirm(problems, params, jobs_n, out):
+def stage_confirm(problems, params, jobs_n, out, activation="sigmoid", grid=HIDDEN_GRID):
     """
     Stage A again, with every algorithm at its tuned control parameters.
     Stage A had to choose the architecture before the parameters were known;
@@ -163,8 +164,8 @@ def stage_confirm(problems, params, jobs_n, out):
     """
 
     jobs = [dict(stage="confirm", problem=p, algorithm=a, hidden=h,
-                 params=json.dumps(params[(p, a)]), seed=s)
-            for p in problems for a in DEFAULTS for h in HIDDEN_GRID for s in HIDDEN_SEEDS]
+                 params=json.dumps(params[(p, a)]), seed=s, activation=activation)
+            for p in problems for a in DEFAULTS for h in grid for s in HIDDEN_SEEDS]
 
     frame = pd.DataFrame(run_jobs(jobs, jobs_n, "stage A2 (hidden units, tuned)"))
     frame.to_csv(out / "stage_a2_hidden_units_tuned.csv", index=False)
@@ -172,9 +173,10 @@ def stage_confirm(problems, params, jobs_n, out):
 
 
 # ----------------------- stage C ------------------------
-def stage_compare(problems, hidden, params, jobs_n, out):
+def stage_compare(problems, hidden, params, jobs_n, out, activation="sigmoid"):
     jobs = [dict(stage="compare", problem=p, algorithm=a, hidden=hidden[p],
-                 params=json.dumps(params[(p, a)]), seed=s, curve=True)
+                 params=json.dumps(params[(p, a)]), seed=s, curve=True,
+                 activation=activation)
             for p in problems for a in DEFAULTS for s in COMPARE_SEEDS]
     results = run_jobs(jobs, jobs_n, "stage C (comparison)")
 

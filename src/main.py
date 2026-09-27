@@ -2,8 +2,10 @@
 Run the comparison.
 
     python src/main.py all (full study)
+    python src/main.py analyse (statistics and figures from the csv files)
+    python src/main.py all --activation relu --out out/out_relu (the study with ReLU units)
 
-Results are written to out/ as csv files.
+Results are written to out/ (or --out) as csv files and pdf figures.
 """
 
 import argparse
@@ -15,6 +17,8 @@ import pandas as pd
 import datasets
 import experiments
 import plots
+import stats as statistics
+from nn import ACTIVATIONS
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -28,21 +32,28 @@ def load(out, name):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("stage", choices=["hidden", "params", "confirm", "compare", "all"])
+    parser.add_argument("stage", choices=["hidden", "params", "confirm", "compare",
+                                          "analyse", "all"])
     parser.add_argument("--jobs", type=int, default=8)
     parser.add_argument("--quick", action="store_true")
     parser.add_argument("--problems", nargs="+", default=None)
+    parser.add_argument("--activation", choices=list(ACTIVATIONS), default="sigmoid",
+                        help="hidden unit activation")
+    parser.add_argument("--out", default="out", help="output folder, relative to the project")
+    parser.add_argument("--hidden-grid", type=int, nargs="+", default=experiments.HIDDEN_GRID,
+                        help="hidden layer sizes tried in stages A and A2")
+
     arguments = parser.parse_args()
 
-    out = ROOT / "out"
+    out = ROOT / arguments.out
     out.mkdir(parents=True, exist_ok=True)
     problems = arguments.problems or (["iris", "spirals", "digits", "sinc", "diabetes"]
                                       if arguments.quick else datasets.ALL)
-    stage, jobs = arguments.stage, arguments.jobs
+    stage, jobs, activation = arguments.stage, arguments.jobs, arguments.activation
 
     # stage A: number of hidden units
     if stage in ("hidden", "all"):
-        experiments.stage_hidden(problems, jobs, out)
+        experiments.stage_hidden(problems, jobs, out, activation, arguments.hidden_grid)
 
     hidden = experiments.select_hidden(load(out, "stage_a_hidden_units.csv"), out)
     print("hidden units:", hidden, flush=True)
@@ -51,7 +62,7 @@ def main():
 
     # stage B: control parameters
     if stage in ("params", "all"):
-        experiments.stage_params(problems, hidden, jobs, out, arguments.quick)
+        experiments.stage_params(problems, hidden, jobs, out, activation, arguments.quick)
 
     params = experiments.select_params(load(out, "stage_b_control_parameters.csv"), out)
     for (problem, algorithm), setting in sorted(params.items()):
@@ -61,7 +72,7 @@ def main():
 
     # stage A2: hidden units with the tuned parameters
     if stage in ("confirm", "all"):
-        experiments.stage_confirm(problems, params, jobs, out)
+        experiments.stage_confirm(problems, params, jobs, out, activation, arguments.hidden_grid)
 
     confirmed = experiments.select_hidden(load(out, "stage_a2_hidden_units_tuned.csv"),
                                           out, "confirmed_hidden_units.csv")
@@ -71,7 +82,7 @@ def main():
 
     # stage C: the comparison
     if stage in ("compare", "all"):
-        experiments.stage_compare(problems, hidden, params, jobs, out)
+        experiments.stage_compare(problems, hidden, params, jobs, out, activation)
 
     curves = dict(np.load(out / "learning_curves.npz"))
     comparison = experiments.add_convergence_speed(load(out, "stage_c_comparison.csv"),

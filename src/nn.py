@@ -10,6 +10,9 @@ import numpy as np
 def sigmoid(a):
     return 1.0 / (1.0 + np.exp(-np.clip(a, -500.0, 500.0)))
 
+ACTIVATIONS = {
+    "sigmoid": (sigmoid, lambda g, z: g * z * (1.0 - z))
+}
 
 def add_bias(X):
     return np.hstack([X, np.ones((len(X), 1))])

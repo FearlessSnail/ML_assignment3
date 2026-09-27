@@ -14,6 +14,7 @@ import pandas as pd
 
 import datasets
 import experiments
+import plots
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -77,6 +78,23 @@ def main():
                                                    curves)
     print(comparison.groupby(["problem", "algorithm"])[["test_error", "cu_to_target"]]
           .median().to_string())
+
+    if stage == "compare":
+        return
+
+    pd.DataFrame([dict(problem=p.name, kind=p.kind, patterns=len(p.X),
+                       inputs=p.X.shape[1], outputs=p.T.shape[1],
+                       hidden=hidden[p.name], budget=p.budget, description=p.description)
+                  for p in map(datasets.get, problems)]).to_csv(
+        out / "problems.csv", index=False)
+
+    print("\n" + statistics.report(comparison, out))
+    plots.hidden_units(load(out, "stage_a_hidden_units.csv"),
+                       load(out, "selected_hidden_units.csv").set_index("problem"), out)
+    plots.sgd_stability(load(out, "stage_a2_hidden_units_tuned.csv"), params, out, activation)
+    plots.leapfrog_stall(hidden, params, out, activation)
+    plots.learning_curves(comparison, curves, out)
+    print(f"\nwrote csv files and figures to {out}")
 
 
 if __name__ == "__main__":

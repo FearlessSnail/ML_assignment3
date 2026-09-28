@@ -1,0 +1,907 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{stfloats}
+\usepackage{flafter}
+\usepackage{url}
+\usepackage[caption=false,font=footnotesize]{subfig}
+\usepackage[acronym,nonumberlist,nopostdot,nogroupskip]{glossaries}
+
+\graphicspath{{../out/}}
+
+\renewcommand{\topfraction}{0.92}
+\renewcommand{\bottomfraction}{0.75}
+\renewcommand{\textfraction}{0.06}
+\renewcommand{\floatpagefraction}{0.70}
+\setcounter{topnumber}{3}
+\setcounter{bottomnumber}{2}
+\setcounter{totalnumber}{5}
+
+\setacronymstyle{long-short}
+\newacronym{cu}{CU}{complexity unit}
+\newacronym{mse}{MSE}{mean squared error}
+\newacronym{relu}{ReLU}{rectified linear unit}
+\newacronym{scg}{SCG}{scaled conjugate gradient}
+\newacronym{sgd}{SGD}{stochastic gradient descent}
+\makenoidxglossaries
+
+\newcommand{\vect}[1]{\mathbf{#1}}
+
+\begin{document}
+
+\title{A Comparison of Stochastic Gradient Descent, Scaled Conjugate Gradient and LeapFrog for the Training of Feedforward Neural Networks}
+
+\author{\IEEEauthorblockN{S.L. Johnson}
+\IEEEauthorblockA{\textit{27356485}\\
+\textit{Department of Computer Science}\\
+\textit{Stellenbosch University}\\
+27356485@sun.ac.za\\
+Code \url{https://github.com/FearlessSnail/ML-assignment3.git}}
+}
+
+\maketitle
+
+\begin{abstract}
+This study compared three algorithms for the training of feedforward neural
+networks with one hidden layer: stochastic gradient descent, scaled conjugate
+gradient and the LeapFrog dynamic method. Five classification and four function
+approximation problems of varying complexity served as benchmarks. After the
+optimal number of hidden units and the best control parameters had been
+determined empirically for each problem, the algorithms were compared over 30
+paired runs per problem under an equal budget of computational work. No algorithm generalised significantly better across the
+nine problems. Stochastic gradient descent attained a validation cost common to all three
+algorithms with significantly less computational work, whereas the two batch methods required
+significantly less wall-clock time. Scaled conjugate gradient was insensitive to
+the control parameters over the grid tested and was concluded to be the most practical of the
+three algorithms.
+\end{abstract}
+
+\section{Introduction}
+
+A feedforward neural network learns a mapping from inputs to outputs through the
+adjustment of the weights of the network. The adjustment is an unconstrained
+optimisation problem, and the choice of optimisation algorithm affects both the
+quality of the trained network and the cost of training. The present study
+compares three algorithms that rest on different principles. \Gls{sgd} follows
+the negative gradient of the error on small random subsets of the data, whereas the
+\gls{scg} algorithm of M{\o}ller~\cite{moller1993} uses second-order information
+to choose the search direction and the step size. The LeapFrog algorithm of
+Snyman~\cite{snyman1982,snyman1983} models the weights as a particle that moves
+under the force of the negative gradient. \Gls{scg} and LeapFrog are batch methods,
+because every step uses the gradient over the full training set.
+
+A fair comparison requires care: each algorithm has to receive the same
+architecture, the best control parameters for the problem and an equal amount of
+computational work. The control parameters of an algorithm are the constants that
+the user sets before training, such as the learning rate. Because every training
+run also depends on a random data split and on random initial weights, the results
+have to be tested statistically. The purpose of the study was to identify the best
+of the three algorithms under such a controlled comparison. After the optimal number of hidden
+units and the best control parameters had been determined for nine benchmark
+problems, the algorithms were compared on 30 fresh paired runs per problem with
+rank-based statistical tests.
+
+No algorithm generalised significantly better across the nine problems. \Gls{sgd}
+learned significantly faster per unit of computational work, whereas the two batch
+methods were significantly faster in wall-clock time. \Gls{scg} was also
+insensitive to the control parameters over the grid tested.
+
+The remainder of the report is structured as follows. Section~II presents the
+background on neural networks, the three algorithms and the statistical tests,
+and Section~III describes the implementation. Section~IV details the empirical
+process, Section~V presents and discusses the results, and Section~VI concludes
+the study.
+
+\section{Background}
+
+This section provides the theoretical foundation for the study. Feedforward
+neural networks and generalisation are described first, followed by the three
+training algorithms and a common measure of computational work. The
+section closes with the statistical tests used to compare algorithms.
+
+\subsection{Feedforward Neural Networks}
+
+A feedforward neural network with one hidden layer maps an input vector
+$\vect{x}$ of $d$ components to an output vector $\vect{y}$ of $c$ components
+through $h$ hidden units~\cite{engelbrecht2007}. Each unit passes a weighted sum
+of the values of the preceding layer, referred to as the net input, through an
+activation function. A bias is the weight of an additional input fixed at one.
+Let $\vect{U}$ denote the $(d+1) \times h$ matrix of weights from the inputs to
+the hidden units, and $\vect{V}$ the $(h+1) \times c$ matrix of weights from the
+hidden units to the outputs. The network computes
+\begin{equation}
+\vect{z} = f\big(\vect{U}^{\top} [\vect{x}; 1]\big), \qquad
+\vect{y} = g\big(\vect{V}^{\top} [\vect{z}; 1]\big),
+\end{equation}
+where $\vect{z}$ denotes the vector of hidden unit outputs and $[\vect{x}; 1]$
+denotes $\vect{x}$ extended with a constant one. The functions $f$ and $g$ denote
+the hidden and output activation functions, applied to each component.
+
+The classical activation function is the logistic sigmoid
+$f(\nu) = 1/(1 + \exp(-\nu))$, where $\nu$ denotes the net input of a unit. The
+sigmoid is smooth and bounded on the interval $(0, 1)$, whereas the \gls{relu},
+given by $f(\nu) = \max(0, \nu)$, is a piecewise linear alternative. A linear
+output function suits function approximation with unbounded targets, whereas a
+sigmoid output function suits classification by keeping each output in the
+interval $(0, 1)$. Hornik \emph{et al.}~\cite{hornik1989} showed
+that one hidden layer with sufficient sigmoid units approximates any continuous
+function on a bounded domain to any desired accuracy. The number of hidden units
+therefore determines the capacity of the network: too few units are unable to
+represent the function, and too many fit the noise in the training
+data~\cite{engelbrecht2007}.
+
+All $q = (d+1)h + (h+1)c$ weights form a single weight vector $\vect{w}$. Training
+minimises the squared error, summed over the outputs and averaged over the $n$
+training patterns, given by
+\begin{equation}
+e(\vect{w}) = \frac{1}{2n} \sum_{i=1}^{n} \lVert \vect{y}_i - \vect{t}_i \rVert^2,
+\end{equation}
+where $\vect{y}_i$ and $\vect{t}_i$ denote the output and the target for pattern
+$i$. The cost as a function of the weights is referred to as the error surface. A
+forward pass computes the outputs of all units for every training pattern, and
+backpropagation adds a backward pass that propagates the output errors back
+through the weights to give the gradient
+$\nabla e(\vect{w})$~\cite{rumelhart1986}.
+
+\subsection{Generalisation and Overfitting}
+
+The purpose of training is a low error on unseen patterns, referred to as the
+generalisation error~\cite{engelbrecht2007}. The training error decreases as
+training continues and as units are added, whereas the generalisation error
+eventually increases again because the network starts to fit noise. The data are
+therefore divided into three disjoint sets. The cost is minimised on the training
+set and the validation set guides every choice. The test set measures the final
+network once, so that the choices do not bias the estimate of the generalisation
+error. The training cost and
+the validation cost are the cost function $e$ evaluated on the training set and on
+the validation set. Early stopping limits overfitting by retaining the weights with the
+lowest validation cost seen during training~\cite{prechelt1998}.
+
+The validation error is the generalisation error measured on the validation
+set. A candidate configuration, such as a number of hidden units, is judged on the
+mean validation error over repeated runs. The standard error of the mean is the sample
+standard deviation divided by the square root of the number of runs. Because
+the candidate with the lowest mean tends to be a lucky and needlessly complex
+winner, the one-standard-error rule selects the simplest candidate with a mean
+within one standard error of the lowest mean~\cite{hastie2009}. The standard
+error in the rule is that of the candidate with the lowest mean.
+
+\subsection{Stochastic Gradient Descent}
+
+\Gls{sgd} moves the weights in the direction of the negative gradient, with the
+full gradient replaced by the gradient over a small random batch of patterns. A pass over the training set is referred to as an
+epoch, and batches of $b$ patterns give $n/b$ updates per epoch. A momentum term
+accumulates the previous updates~\cite{polyak1964,rumelhart1986}. Let $B$ denote
+the current batch, $e_B$ the cost over $B$ and $k$ the iteration index. The update
+is given by
+\begin{equation}
+\Delta\vect{w}_k = \gamma \, \Delta\vect{w}_{k-1} - \eta \, \nabla e_B(\vect{w}_k),
+\qquad \vect{w}_{k+1} = \vect{w}_k + \Delta\vect{w}_k,
+\end{equation}
+where $\Delta\vect{w}_k$ denotes the weight change, $\eta$ the learning rate and
+$\gamma$ the momentum. A small learning rate slows progress, and a large learning
+rate causes divergence. The batch size trades the number of updates against how closely each batch
+gradient matches the full gradient.
+Because \gls{sgd} does not adapt the step size, the performance depends directly
+on $\eta$ and $\gamma$.
+
+\subsection{Scaled Conjugate Gradient}
+
+The Hessian matrix $\vect{H}$ contains the second derivatives of $e$ with respect
+to the weights. Conjugate gradient methods minimise a quadratic function of $q$
+variables in at most $q$ steps~\cite{hestenes1952}. Step $k$ searches along a
+direction $\vect{p}_k$ conjugate to every earlier direction $\vect{p}_j$, that is
+$\vect{p}_k^{\top} \vect{H} \vect{p}_j = 0$ for $j < k$, so that a minimisation
+along a conjugate direction does not undo the minimisation along earlier
+directions. The error surface of a neural network is not quadratic, however. The
+Hessian is positive definite when the error curves upward along every direction, a
+property often lost far from a minimum. A step size computed from the curvature is then
+unreliable, so classical conjugate gradient methods determine the step size
+through a line search, a one-dimensional minimisation of
+the error along the search direction. M{\o}ller~\cite{moller1993}
+noted that the line search costs additional evaluations of the error or the gradient in every iteration.
+
+M{\o}ller~\cite{moller1993} proposed \gls{scg} to remove the line search. First,
+the product of the Hessian with the search direction is approximated through a
+finite difference of two gradients, given by
+\begin{equation}
+\vect{s}_k = \frac{\nabla e(\vect{w}_k + \sigma_k \vect{p}_k) - \nabla e(\vect{w}_k)}{\sigma_k},
+\end{equation}
+where $\sigma_k = \sigma / \lVert \vect{p}_k \rVert$ for a small constant $\sigma$.
+The curvature along the search direction is $\vect{p}_k^{\top} \vect{H}
+\vect{p}_k$, approximated by $\vect{p}_k^{\top} \vect{s}_k$. Second, a scale
+parameter $\lambda_k$ is added to the curvature. As in the Levenberg--Marquardt
+method, the addition acts as if a multiple of the identity matrix were added to
+the Hessian, and a larger $\lambda_k$ gives a shorter step. The scaled curvature is
+\begin{equation}
+\kappa_k = \vect{p}_k^{\top} \vect{s}_k + \lambda_k \lVert \vect{p}_k \rVert^2.
+\end{equation}
+The scale parameter is raised whenever $\kappa_k \le 0$, so that the quadratic
+model always has a minimum along the search direction. Third, a comparison parameter $\rho_k$ measures
+the agreement between the actual reduction of the error and the reduction predicted
+by a quadratic model, the second-order Taylor approximation of the error along the
+search direction. A large $\rho_k$ indicates a reliable model and lowers
+$\lambda_k$ to allow longer steps, whereas a small $\rho_k$ raises $\lambda_k$ and
+shortens the steps.
+
+Algorithm~\ref{alg:scg} summarises \gls{scg}, with the negative gradient
+$\vect{r}_k = -\nabla e(\vect{w}_k)$, the step size $\alpha_k = \mu_k / \kappa_k$
+and $\mu_k = \vect{p}_k^{\top} \vect{r}_k$. A temporary scale parameter
+$\bar\lambda_k$ records the scaling already added to the curvature, so that a
+rejected step is retried without computing $\vect{s}_k$ again. Each iteration costs two
+gradient evaluations and one error evaluation. M{\o}ller~\cite{moller1993}
+recommended $\sigma \le 10^{-4}$ and an initial scale parameter
+$\lambda_1 \le 10^{-6}$. Having found the performance on the 5-bit parity
+problem not significantly affected by $\sigma \le 10^{-4}$, M{\o}ller concluded
+that \gls{scg} has no user-dependent parameters crucial to success.
+
+\begin{algorithm}[t]
+\caption{Scaled conjugate gradient}
+\label{alg:scg}
+\begin{algorithmic}[1]
+\STATE Set $\vect{p}_1 = \vect{r}_1$, $\bar\lambda_1 = 0$, $k = 1$ and mark the last step as successful
+\REPEAT
+\IF{the last step was successful}
+\STATE Compute $\vect{s}_k$ and the curvature $\vect{p}_k^{\top} \vect{s}_k$
+\ENDIF
+\STATE Add $(\lambda_k - \bar\lambda_k) \lVert \vect{p}_k \rVert^2$ to the curvature to obtain $\kappa_k$
+\STATE Raise $\lambda_k$ until the curvature is positive, if $\kappa_k \le 0$
+\STATE Set $\alpha_k = \mu_k / \kappa_k$ and compute $\rho_k = 2 \kappa_k [e(\vect{w}_k) - e(\vect{w}_k + \alpha_k \vect{p}_k)] / \mu_k^2$
+\IF{$\rho_k \ge 0$}
+\STATE Accept $\vect{w}_{k+1} = \vect{w}_k + \alpha_k \vect{p}_k$ and set $\bar\lambda_k = 0$
+\STATE Set $\beta_k = (\lVert \vect{r}_{k+1} \rVert^2 - \vect{r}_{k+1}^{\top} \vect{r}_k) / \mu_k$ and $\vect{p}_{k+1} = \vect{r}_{k+1} + \beta_k \vect{p}_k$, or $\vect{p}_{k+1} = \vect{r}_{k+1}$ after every $q$ iterations
+\STATE Divide $\lambda_k$ by four if $\rho_k \ge 0.75$
+\ELSE
+\STATE Reject the step, set $\bar\lambda_k = \lambda_k$ and mark the step as unsuccessful
+\ENDIF
+\STATE Increase $\lambda_k$ if $\rho_k < 0.25$, and increase $k$ by one
+\UNTIL{the gradient vanishes or the budget is spent}
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{LeapFrog}
+
+Snyman~\cite{snyman1982} treated minimisation as a problem of mechanics. The
+weights are the position of a particle of unit mass, the error $e(\vect{w})$ is the
+potential energy of the particle, and the force on the particle is the negative
+gradient. The particle therefore follows $\ddot{\vect{w}} = -\nabla e(\vect{w})$,
+where the double dot denotes the second derivative with respect to time. The
+kinetic energy of the particle is $\frac{1}{2} \lVert \dot{\vect{w}} \rVert^2$,
+where the single dot denotes the first derivative. Because the force
+field is conservative, the sum of the potential and the kinetic energy is constant,
+and a decrease in the error is matched by an increase in the kinetic energy. The trajectory is integrated with the leap-frog scheme, given by
+\begin{equation}
+\vect{w}_{k+1} = \vect{w}_k + \tau \vect{v}_k, \qquad
+\vect{v}_{k+1} = \vect{v}_k + \tau \vect{a}_{k+1},
+\end{equation}
+where $\vect{v}_k$ denotes the velocity, $\vect{a}_k = -\nabla e(\vect{w}_k)$ the
+acceleration and $\tau$ the time step.
+
+An undisturbed particle would oscillate indefinitely, so LeapFrog interferes
+whenever the particle loses speed, a sign that the particle climbs. The particle then restarts from the midpoint of the last
+step with a reduced velocity, or from rest after repeated restarts. The original
+algorithm, LFOP1, limits the step length $\tau \lVert \vect{v}_k \rVert$ to a
+maximum $\delta$~\cite{snyman1982}, and the improved version LFOP1(b) adds an
+automatic control of the time step~\cite{snyman1983}. The force reverses when the new acceleration
+points against the previous one, that is when
+$\vect{a}_{k+1}^{\top} \vect{a}_k \le 0$. After every step shorter than
+$\delta$ and without a reversal, the time step is multiplied by a growth factor that
+increases by $\delta_1$ after each such step and returns to one after a reversal.
+The time step halves after $m$ consecutive reversals. Each step of LFOP1(b),
+summarised in Algorithm~\ref{alg:leapfrog}, costs one gradient evaluation. Snyman used $\tau_0 = 0.5$ and $\delta = 1$ for
+LFOP1~\cite{snyman1982}, and added $m = 3$ and $\delta_1 = 0.001$ for
+LFOP1(b)~\cite{snyman1983}.
+
+\begin{algorithm}[t]
+\caption{LeapFrog LFOP1(b)}
+\label{alg:leapfrog}
+\begin{algorithmic}[1]
+\STATE Set $\vect{v}_0 = \frac{1}{2} \tau_0 \vect{a}_0$ and $\tau = \tau_0$
+\REPEAT
+\IF{the step length $\tau \lVert \vect{v}_k \rVert$ exceeds $\delta$}
+\STATE Scale $\vect{v}_k$ so that the step length equals $\delta$
+\ELSE
+\STATE Increase the growth factor by $\delta_1$ and multiply $\tau$ by the factor
+\ENDIF
+\IF{the force reversed direction in $m$ consecutive steps}
+\STATE Halve $\tau$, move to the midpoint of the last step and damp the velocity
+\ENDIF
+\STATE Set $\vect{w}_{k+1} = \vect{w}_k + \tau \vect{v}_k$ and $\vect{v}_{k+1} = \vect{v}_k + \tau \vect{a}_{k+1}$
+\IF{$\lVert \vect{v}_{k+1} \rVert \le \lVert \vect{v}_k \rVert$}
+\STATE Restart from the midpoint with the velocity $\frac{1}{4}(\vect{v}_{k+1} + \vect{v}_k)$, or with zero velocity after repeated restarts
+\ENDIF
+\STATE Increase $k$ by one
+\UNTIL{the gradient vanishes or the budget is spent}
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Computational Work}
+
+Iterations of the three algorithms are not comparable, so M{\o}ller~\cite{moller1993}
+measured work in \glspl{cu}. One \gls{cu} is one forward pass over the
+full training set, and a gradient over the full training set costs three
+\glspl{cu}. One \gls{sgd} epoch therefore costs three \glspl{cu} regardless of the
+batch size, as does one LeapFrog step, while one \gls{scg} iteration costs about
+seven.
+
+\subsection{Statistical Comparison of Algorithms}
+
+The data split, the initial weights and the order of the batches are all random,
+so algorithms are compared over repeated runs. In a paired design, one seed fixes
+the data split and the initial weights for every algorithm, so that the variation
+between splits cancels in the differences. The paired $t$-test assumes
+normally distributed differences, an assumption that the Shapiro--Wilk test
+assesses~\cite{shapiro1965}. The Wilcoxon signed-rank test~\cite{wilcoxon1945}
+makes no such assumption~\cite{demsar2006} and compares the rank sums of the
+positive and the negative differences. The Hodges--Lehmann estimator, the median of all pairwise
+averages of the differences, estimates the size and direction of the difference between two
+algorithms~\cite{hodges1963}.
+The procedure of Holm~\cite{holm1979} adjusts the probability values of multiple
+tests to control the probability of any false positive.
+
+Dem\v{s}ar~\cite{demsar2006} recommended rank-based tests for the comparison of
+algorithms over multiple problems. The algorithms are ranked on each problem, and the Friedman
+test~\cite{friedman1937} assesses whether the mean ranks differ.
+The Nemenyi test~\cite{demsar2006,nemenyi1963} declares two algorithms different when the mean
+ranks differ by more than a critical difference. For three algorithms and nine
+problems, the critical difference at a significance level of 0.05 is 1.10 mean
+ranks~\cite{demsar2006}.
+
+In summary, \gls{sgd} relies on the gradient alone, \gls{scg} adds curvature
+information without a line search, and LeapFrog follows a damped physical
+trajectory. \Glspl{cu} make the work of the three algorithms comparable, and
+rank-based tests compare the algorithms without an assumption of normality.
+
+\section{Implementation}
+
+This section describes the implementation, starting with the software and
+followed by the network and the training algorithms.
+
+\subsection{Software}
+
+The implementation is written in Python\footnote{\url{https://www.python.org}},
+and the NumPy library\footnote{\url{https://numpy.org}} provides all numerical
+computation,
+including the network and the three training algorithms. The training algorithms
+are implemented from the source papers rather than taken from a library, so that
+every algorithm counts work in exactly the same way and is verifiable against the
+source paper. The scikit-learn
+library\footnote{\url{https://scikit-learn.org}} supplies five benchmark problems
+and the stratified division of the data but plays no part in training. The SciPy
+library\footnote{\url{https://scipy.org}} provides the statistical tests, and the
+Matplotlib library\footnote{\url{https://matplotlib.org}} produces the figures.
+
+\subsection{Network and Training Algorithms}
+
+The network stores all weights in one vector, so the training algorithms treat
+the network as a function from the weights to the cost and the gradient. A
+comparison with central finite differences confirmed the gradient to a relative
+error of $4.4 \times 10^{-8}$. The initial weights are drawn uniformly from the
+interval $[-1/\sqrt{\phi}, 1/\sqrt{\phi}]$, where $\phi$ denotes the number of
+inputs to a unit, bias included~\cite{engelbrecht2007}. The interval keeps the initial net inputs in the
+responsive range of the sigmoid~\cite{lecun1998}. Every evaluation of the cost or
+the gradient adds the \glspl{cu} of the evaluation to one counter, so that the
+work of all three algorithms is counted in the same way.
+
+The three algorithms share one interface: each receives the initial
+weights, the cost function and a monitor. \Gls{sgd} reshuffles the patterns every
+epoch, while the implementations of \gls{scg} and LeapFrog follow the steps of the source
+papers one by one. \Gls{scg} additionally stops when the search direction vanishes
+or the scale parameter exceeds $10^{20}$, two cases that the paper does not
+discuss. The monitor evaluates the training and the validation cost at the end of an
+iteration, at most once every three \glspl{cu}. The monitor records the weights with the
+lowest validation cost and ends the
+run when the budget is spent. One seed fixes the data split, the initial weights and the order of the \gls{sgd}
+batches, so that runs with the same seed are paired and every result is
+reproducible.
+
+\section{Empirical Process}
+
+This section describes the empirical process. The benchmark problems and the
+preprocessing of the data come first, followed by the selection of the number of
+hidden units and of the control parameters. The section closes with the
+performance criteria and the comparison protocol.
+
+\subsection{Benchmark Problems}
+
+Table~\ref{tab:problems} lists the nine benchmark problems, chosen to vary in
+size, dimension, number of classes, non-linearity and noise.
+
+\begin{table}[t]
+\centering
+\caption{Benchmark problems}
+\label{tab:problems}
+\footnotesize
+\input{tables/problems}
+\end{table}
+
+Five problems are classification problems. Iris contains four measurements of 150
+flowers of three species. Wine contains 13 chemical measurements
+of 178 wines from three
+cultivars\footnote{\url{https://archive.ics.uci.edu/dataset/109/wine}}, on scales
+that differ by four orders of magnitude. Cancer contains 30 features of cell nuclei
+from 569 breast tissue samples, labelled malignant or
+benign\footnote{\url{https://archive.ics.uci.edu/dataset/17}}. Digits contains
+1\,797 images of handwritten digits of eight by eight pixels, in 10 classes, in the
+version distributed with scikit-learn, the test portion of the original data
+set\footnote{\url{https://archive.ics.uci.edu/dataset/80}}. Spirals is a version of the
+two-spirals problem~\cite{lang1988}, with 400 points on two interlocking spirals of
+1.25 turns separated by a highly non-linear boundary.
+
+Four problems are function approximation problems. Let $x_1$ and $x_2$ denote the
+first two components of the input vector. Sinc samples $\sin(x_1)/x_1$ at 300
+points on the interval $[-10, 10]$. Sin2D samples $\sin(2\pi x_1)\cos(2\pi x_2)$
+at 600 points on the unit square. Both add Gaussian noise with a standard deviation
+of 0.05. Friedman1 samples the 10-input test function of Friedman~\cite{friedman1991} at
+600 points, with five irrelevant inputs and Gaussian noise of standard deviation
+one. Diabetes contains 10 measurements of 442 patients and the
+progression of the disease after one year.
+
+\subsection{Data Preprocessing and Network Configuration}
+
+Every run divided the data into 60 percent training, 20 percent validation and 20
+percent test patterns, stratified for classification so that each set kept the
+class proportions. Every input was standardised to zero mean and
+unit variance with the statistics of the training set alone. Inputs constant on
+the training set, such as pixels of Digits that are blank in every training image, were centred
+but not scaled.
+Standardisation prevents large inputs from saturating the sigmoid
+units~\cite{engelbrecht2007} and improves the conditioning of the error
+surface~\cite{lecun1998}. The conditioning is the ratio of the largest to the
+smallest curvature of the error surface, given by the eigenvalues of the
+Hessian~\cite{lecun1998}. A
+poorly conditioned surface forms long narrow valleys, where no single step size
+suits every direction. The effect of a weight
+change on the net input depends on the scale of the inputs. Standardisation
+therefore also gives the learning rate of \gls{sgd} and the step limit of LeapFrog
+a comparable effect across problems.
+
+Classification targets were coded with one output per class, at 0.9 for the true
+class and 0.1 for the others. Because a sigmoid attains zero or one only in the limit, targets of zero and
+one would drive the weights towards infinity~\cite{engelbrecht2007,lecun1998}. No problem contained missing
+values, and the only nominal input was the binary sex variable of Diabetes.
+
+Every network had one hidden layer of sigmoid units, because \gls{scg} and LeapFrog
+both assume a smooth cost function. The output units were sigmoid for
+classification and linear for function approximation, and every problem used the
+averaged sum of squared errors as the cost function. Every run on a problem received
+the same budget of \glspl{cu}, listed in Table~\ref{tab:problems}. On seven
+problems, the budgets left ample room beyond the typical point of convergence: over
+the final tenth of the budget, the median improvement of the lowest validation cost
+over the comparison runs was zero. On Sinc and Sin2D, the median improvement over
+the final tenth was up to 3 percent, so the results on the two problems reflect the
+budget as well as the algorithms.
+
+\subsection{Selection of the Number of Hidden Units}
+
+For each size, the validation error was averaged over repeated runs. The size with
+the lowest mean set a threshold one standard error above that mean, and the optimal
+number of hidden units $h^*$ was the smallest size with a mean at or below the
+threshold. For
+classification, the validation error is the fraction of misclassified validation
+patterns. For
+function approximation, the validation error is the \gls{mse} on the validation set.
+Early stopping and the tie-break of Section~IV-D use the validation cost instead.
+The validation error measures generalisation, and the mean over repeated runs
+estimates the expected error. The smallest size at or below the threshold avoids a choice
+based on differences below the level of noise.
+
+Stage A trained networks of 1, 2, 4, 6, 8, 12, 16, 24 and 32 hidden units, a grid
+dense at the small sizes where the error changes fastest. Each algorithm trained
+every size with five seeds, at the default control parameters of
+Table~\ref{tab:grids}, because the control parameters were unknown before the
+architecture was chosen. The validation errors of the three algorithms were
+pooled, so that one size served all three algorithms and the comparison held the
+architecture fixed. Stage A2 repeated stage A with the
+control parameters fixed at the values that stage B tuned at $h^*$, to test
+whether the choice depended on the order of the
+two stages.
+
+\subsection{Selection of the Control Parameters}
+
+The best control parameters of an algorithm on a problem were chosen with the
+same rule. At $h^*$, the setting with the lowest mean validation error set a
+threshold one standard error above that mean. Among the settings at or below the
+threshold, the setting with the least mean work to the lowest validation cost of a
+run was preferred. Stage B evaluated every combination in
+Table~\ref{tab:grids} with 10 seeds on every problem. A full grid was necessary because the
+parameters interact: the effective step of \gls{sgd}, for example, grows
+approximately as $\eta/(1-\gamma)$. Each range extended from conservative to
+aggressive values, on an approximately logarithmic scale for $\eta$, $b$, $\sigma$,
+$\lambda_1$, $\tau_0$, $\delta$ and $\delta_1$. A first pass with five seeds selected a setting of \gls{sgd} close to divergence on Sin2D,
+so the number of seeds was raised to 10 for every problem and algorithm.
+
+\begin{table}[t]
+\centering
+\caption{Grids of control parameters}
+\label{tab:grids}
+\footnotesize
+\begin{tabular}{@{}llll@{}}
+\toprule
+Algorithm & Parameter & Values & Default \\
+\midrule
+\multirow{3}{*}{SGD} & $\eta$ & 0.05, 0.1, 0.5, 1, 2 & 0.1 \\
+ & $\gamma$ & 0, 0.5, 0.9 & 0.9 \\
+ & $b$ & 8, 32, 128 & 32 \\
+\midrule
+\multirow{2}{*}{SCG} & $\sigma$ & $10^{-6}$, $10^{-5}$, $10^{-4}$, $10^{-3}$ & $10^{-4}$ \\
+ & $\lambda_1$ & $10^{-8}$, $10^{-6}$, $10^{-4}$ & $10^{-6}$ \\
+\midrule
+\multirow{4}{*}{LeapFrog} & $\tau_0$ & 0.1, 0.5, 1 & 0.5 \\
+ & $\delta$ & 0.5, 2, 10, 50 & 1 \\
+ & $m$ & 3, 5, 8 & 3 \\
+ & $\delta_1$ & 0.001, 0.01 & 0.001 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Performance Criteria and Comparison Protocol}
+
+Four performance criteria were defined before the comparison. The primary
+criterion was the generalisation error on the test set. For classification, the
+generalisation error is the misclassification rate, equal to one minus the
+accuracy, where the accuracy is the fraction of test patterns classified correctly.
+The \gls{mse} alone is a poor measure of accuracy for
+classification~\cite{engelbrecht2007}. For
+function approximation, the generalisation error is the \gls{mse} on the test set.
+The second criterion was the \gls{mse} on the test set for classification as well,
+a finer measure than the misclassification rate. The third criterion was the work
+to target, the number of \glspl{cu} a run required to attain the target of the
+split. On each split, every algorithm attained a lowest validation cost, and the target
+of the split was the highest of the three. A target per split adapts the
+criterion to the difficulty of the split, and every run attains the target by
+construction. The fourth criterion was the wall-clock time for the full budget.
+
+Stage C compared the algorithms on 30 seeds that no earlier stage had used, with
+each algorithm at $h^*$, the tuned control parameters and the budget of the problem.
+Stages A, B, A2 and C comprised 1\,215, 11\,610, 1\,215 and 810 runs. Within each
+problem, the Wilcoxon signed-rank test compared every pair of algorithms, with the
+Holm correction over the three pairs and a significance level of 0.05. The
+rank-based test was preferred to the paired $t$-test because the rank-based test
+does not assume normality~\cite{demsar2006}. The Shapiro--Wilk test supported the
+choice, rejecting normality of the paired differences in 16 of the 27 comparisons
+of generalisation error. Differences in misclassification rate are discrete and
+often tied, a property that alone departs from normality. Across the nine problems,
+the Friedman test and the Nemenyi critical difference compared the mean ranks,
+with each algorithm ranked on the mean of each criterion over the 30 runs. The
+complete process was also repeated with \glspl{relu} in the hidden layer, with the
+same grids of control parameters and a grid of sizes extended by 48, 64, 96 and
+128 units. The repetition tested whether the conclusions survived a cost function
+that is not smooth.
+
+In summary, the number of hidden units and the control parameters were chosen on
+validation data with the one-standard-error rule and full grids. The comparison
+used 30 fresh paired runs per problem, four criteria and rank-based tests.
+
+\section{Results and Discussion}
+
+This section presents and discusses the results, beginning with the optimal
+numbers of hidden units and the tuned control parameters. The generalisation
+error, the speed of learning and the overall comparison follow.
+
+\subsection{Optimal Number of Hidden Units}
+
+Figure~\ref{fig:hidden} shows the mean validation error against the number of
+hidden units, and Table~\ref{tab:hidden} lists the chosen sizes. The error fell
+steeply while the network was too small and then flattened. On Iris, Spirals, Sinc
+and Friedman1, the error rose again for the largest networks.
+
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=0.75\textwidth]{legend_hidden}\\[-5pt]
+\subfloat[Iris]{\includegraphics{hidden_iris}}\hfil
+\subfloat[Wine]{\includegraphics{hidden_wine}}\hfil
+\subfloat[Cancer]{\includegraphics{hidden_cancer}}\\[-5pt]
+\subfloat[Digits]{\includegraphics{hidden_digits}}\hfil
+\subfloat[Spirals]{\includegraphics{hidden_spirals}}\hfil
+\subfloat[Sinc]{\includegraphics{hidden_sinc}}\\[-5pt]
+\subfloat[Sin2D]{\includegraphics{hidden_sin2d}}\hfil
+\subfloat[Friedman1]{\includegraphics{hidden_friedman}}\hfil
+\subfloat[Diabetes]{\includegraphics{hidden_diabetes}}
+\caption{Mean validation error against the number of hidden units}
+\label{fig:hidden}
+\end{figure*}
+
+\begin{table}[t]
+\centering
+\caption{Optimal number of hidden units}
+\label{tab:hidden}
+\footnotesize
+\input{tables/hidden}
+\end{table}
+
+The chosen sizes reflected the complexity of the problems. The mean validation
+error of Cancer varied by less than one misclassified validation pattern across all
+sizes, so one unit sufficed for
+the nearly linearly separable problem. Iris required two units, with an error of
+0.136 for one unit against 0.018 for two. Every output of a network
+with one hidden unit is a monotone function of the same net input. The middle
+species of Iris, however, requires a high output between two low outputs, a
+pattern that no monotone function produces. Spirals required 16 units and Digits 24. The individual
+algorithms preferred different sizes on the flat curves: on Diabetes, the lowest
+mean occurred at 16 units for \gls{sgd}, eight for \gls{scg} and 24 for LeapFrog.
+Pooling the algorithms reduced the influence of noise on the choice.
+
+Stage A2 confirmed the choice on seven of the nine problems, and both changes
+occurred on flat curves. On Sinc, the choice moved from six to eight units because
+six units missed the threshold by 0.001. On Cancer, the choice moved from one to 16
+units, with every size performing equally well. The comparison kept the sizes of
+stage A. Stage A2 also exposed a weakness of \gls{sgd}: on Sin2D, Friedman1 and
+Diabetes, the learning rate tuned at $h^*$ failed on larger networks
+(Figure~\ref{fig:stability}(b)).
+
+Figure~\ref{fig:stability} explains the failure. Let $\omega$ denote the largest
+eigenvalue of the Hessian with respect to the output weights. On a quadratic
+function, gradient descent with momentum converges only if
+$\eta\,\omega < 2(1+\gamma)$~\cite{polyak1964}, so the stability ratio
+$\eta\,\omega / [2(1+\gamma)]$ must stay below one. For a linear output, the
+Hessian with respect to the output weights is the mean outer product of the hidden
+outputs, so $\omega$ grows as hidden units are added.
+Figure~\ref{fig:stability}(a) shows the stability ratio at the initial weights
+for the tuned parameters of \gls{sgd}, and Figure~\ref{fig:stability}(b) shows the
+validation error of tuned \gls{sgd} in stage A2, with \gls{scg} dotted. On Sin2D and
+Friedman1, the ratio exceeded one only at 32 units, where the error of \gls{sgd}
+rose to the level of an untrained network. On Diabetes, the ratio already attained
+one at eight units, and the error of \gls{sgd} rose from 12 units onwards.
+\Gls{scg} and LeapFrog adapt the step to the error surface and therefore did not
+suffer from the change of size.
+
+\begin{figure}[t]
+\centering
+\subfloat[Stability ratio]{\includegraphics{stability_ratio}}\hfil
+\subfloat[Validation error]{\includegraphics{stability_error}}
+\caption{Stability of tuned stochastic gradient descent}
+\label{fig:stability}
+\end{figure}
+
+\subsection{Control Parameters}
+
+Table~\ref{tab:params} lists the chosen control parameters, and the column
+labelled tied counts the settings at or below the threshold of Section~IV-D. A high count
+indicates insensitivity to the parameters. Table~\ref{tab:sensitivity} measures sensitivity
+in two ways, each as the median and the maximum over the nine problems. The first
+fixes one parameter at a value and tunes the others. The parameter-fixed columns give how far the
+best mean validation error attainable at the worst such value lies above the
+overall best. The second is the spread between the best and the worst setting of
+the whole grid. A large spread with small values for single parameters indicates
+an interaction between parameters. For classification, the values are differences
+in misclassification rate. For function approximation, the values are differences
+in \gls{mse} on standardised targets, so a spread above one means that the worst
+setting did worse than predicting the mean.
+
+\begin{table*}[!t]
+\centering
+\caption{Chosen control parameters}
+\label{tab:params}
+\footnotesize
+\input{tables/params}
+\end{table*}
+
+\begin{table}[t]
+\centering
+\caption{Sensitivity to the control parameters}
+\label{tab:sensitivity}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\input{tables/sensitivity}
+\end{table}
+
+\Gls{sgd} preferred aggressive settings, with large learning rates and small
+batches, and was sensitive to the settings. A
+learning rate of at least 0.5 was chosen on eight problems, and a batch size of
+eight, the size with the most updates per \gls{cu}, on six. On
+Spirals, only one of the 45 settings lay at or below the threshold. The
+learning rate was the decisive parameter, with the largest parameter-fixed value
+in Table~\ref{tab:sensitivity}, 0.906 on Sin2D.
+At a learning rate of two, 22.5 percent of the runs never improved on the initial
+weights, so the best settings of \gls{sgd} lay close to the boundary of
+divergence.
+
+\Gls{scg} was effectively free of parameters: over the whole grid, the mean
+validation error varied by at most 0.018 on any problem, and all 12 settings were
+tied on five problems. The present grid confirmed the finding of
+M{\o}ller~\cite{moller1993} that the performance was insensitive to $\sigma$ and
+extended the finding to $\sigma = 10^{-3}$ and to
+$\lambda_1$. The results of M{\o}ller already hinted at the first extension, with
+$\sigma = 10^{-3}$ giving the lowest mean number of \glspl{cu} on parity. The scale
+parameter adapts during training, so the initial values affect only the first
+iterations.
+
+LeapFrog was insensitive to each parameter alone, with parameter-fixed values of
+at most 0.016,
+but the spread over the whole grid attained 0.75 on Sinc and 0.70 on Sin2D. The
+poor settings combined the largest step limit of 50 with $m = 8$, the most
+reversals allowed before the time step halves. On Sinc, the combination gave a mean validation error of 0.528, against
+0.028 for a step limit of 0.5. A long permitted step and slow
+damping let the particle swing across the oscillations of the target function.
+Snyman~\cite{snyman1983} suggested that a large step limit was advantageous on the
+test functions, but on neural networks a large step limit was harmful when
+combined with slow damping.
+
+\subsection{Generalisation Error}
+
+Table~\ref{tab:results} reports the generalisation error, and
+Table~\ref{tab:pairwise-error} the pairwise tests. Each pairwise cell gives the
+significantly better algorithm or a tie, and the number of runs won by each
+algorithm of the pair. The standard deviations over the 30 runs were of the same size as the
+differences between the means, and 20 of the 27 pairwise comparisons were ties.
+
+\begin{table}[t]
+\centering
+\caption{Generalisation error over 30 runs}
+\label{tab:results}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\input{tables/results}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Pairwise comparison of generalisation error}
+\label{tab:pairwise-error}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\input{tables/pairwise_error}
+\end{table}
+
+The seven significant differences had identifiable causes. \Gls{sgd} and \gls{scg}
+beat LeapFrog on Digits, with errors of 0.033 and 0.034 against 0.053.
+The median training cost of LeapFrog was 0.057 against 0.009 for \gls{sgd}, so
+the cause was a failure of optimisation rather than overfitting.
+Figure~\ref{fig:leapfrog} shows one run of LeapFrog on Digits and on Sin2D at the
+tuned parameters. The training cost on Digits stopped improving within the first
+tenth of the budget, while the time step grew to 100, against at most 1.4 on
+Sin2D. With the step limit active on 45 percent of the steps, LeapFrog degenerated
+into a method of fixed step length.
+
+\begin{figure}[t]
+\centering
+\subfloat[Lowest training cost]{\includegraphics{leapfrog_cost}}\hfil
+\subfloat[Time step]{\includegraphics{leapfrog_step}}
+\caption{One LeapFrog run on Digits and Sin2D}
+\label{fig:leapfrog}
+\end{figure}
+
+Both batch methods beat \gls{sgd} on Sinc, with a \gls{mse} of about 0.025 against
+0.029. \Gls{sgd} used batches of eight patterns on Sinc, and ended at a median
+training cost of 0.0133 against 0.0111 for \gls{scg}. The gradient of a small batch
+keeps the weights moving around the minimum, so \gls{sgd} settled less precisely.
+LeapFrog beat both other algorithms on Sin2D, with the lowest training cost of the
+three. \Gls{scg} beat \gls{sgd} on Spirals, at 0.012 against 0.020.
+
+\subsection{Speed of Learning and Wall-Clock Time}
+
+Table~\ref{tab:speed} reports the median work to target and the mean wall-clock
+time. \Gls{sgd} attained the target first on eight of the nine problems and won 13 of
+the 18 pairwise comparisons of work that involved \gls{sgd} and tied the other
+five.
+Figure~\ref{fig:curves} shows the learning curves of four problems. On Digits, \gls{sgd} attained the target within two epochs, while LeapFrog
+levelled off above the other two algorithms. One epoch of \gls{sgd} with batches of eight patterns
+performs $n/8$ updates for three \glspl{cu}, against one update for a LeapFrog
+step. Early in training, the gradient of a small batch points in nearly the same
+direction as the full gradient, so each update makes almost full progress. The
+batch methods started slowly and caught up later, with \gls{scg} ending lowest on
+Spirals and LeapFrog on Sin2D.
+
+\begin{table}[t]
+\centering
+\caption{Median work to target and mean wall-clock time}
+\label{tab:speed}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\input{tables/speed}
+\end{table}
+
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=0.36\textwidth]{legend_curves}\\[-5pt]
+\subfloat[Digits]{\includegraphics{curves_digits}}\hfil
+\subfloat[Spirals]{\includegraphics{curves_spirals}}\hfil
+\subfloat[Sinc]{\includegraphics{curves_sinc}}\hfil
+\subfloat[Sin2D]{\includegraphics{curves_sin2d}}
+\caption{Median lowest validation cost against work, with the interquartile range shaded}
+\label{fig:curves}
+\end{figure*}
+
+The advantage of \gls{sgd} narrowed on Sinc and Sin2D, where every algorithm
+required more than 1\,800 \glspl{cu} to attain the target. The target therefore lay
+close to the lowest validation cost attainable within the budget. M{\o}ller~\cite{moller1993} noted that the quadratic
+approximation improves near a minimum and gives a conjugate gradient method fast
+convergence. On Sinc, \gls{scg} attained the target with less work than \gls{sgd}.
+
+The order reversed in wall-clock time, with \gls{sgd} the slowest algorithm on
+every problem by a factor between 1.4 on Sin2D and 24.7 on Cancer. An epoch of \gls{sgd}
+performs many small matrix products where a batch method performs one large
+product, and each product carries a fixed overhead that the \glspl{cu} ignore.
+
+\subsection{Overall Comparison}
+
+Table~\ref{tab:friedman} reports the tests across the nine problems and the mean
+ranks. Bold marks the lowest mean rank of a criterion, and a dagger marks a mean
+rank that exceeds the lowest by more than the critical difference of 1.10. The work to target and the wall-clock time differed significantly, whereas the
+generalisation error and the \gls{mse} on the test set did not. On
+generalisation error, \gls{scg} and \gls{sgd} shared a mean rank of 1.78. Within the problems, \gls{scg} won three significant comparisons and lost one,
+LeapFrog won three and lost two, and \gls{sgd} won one and lost four. On work to target,
+\gls{sgd} was significantly faster than LeapFrog, while the lead of \gls{sgd} over
+\gls{scg}, at 1.00 mean rank, fell just within the critical difference of 1.10. On
+wall-clock time, both batch methods were significantly faster than \gls{sgd}.
+
+\begin{table}[t]
+\centering
+\caption{Tests across the nine problems and mean ranks}
+\label{tab:friedman}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+\input{tables/friedman}
+\end{table}
+
+The best algorithm therefore depends on the scarce resource. \Gls{sgd} is the best
+choice when gradient evaluations are scarce and tuning is affordable, whereas the
+batch methods are the better choice when time is scarce. Between the two batch
+methods, the effort of tuning decides. The default parameters of \gls{scg} were statistically as
+good as the best setting on every problem, and \gls{scg} did not fail on Digits.
+\Gls{scg} was therefore the most practical of the three algorithms. The finding that
+\gls{sgd} needed less work than \gls{scg} does not contradict
+M{\o}ller~\cite{moller1993}, who found \gls{scg} to need between 8.4
+and 23.4 times fewer \glspl{cu} than backpropagation. The backpropagation of
+M{\o}ller updated the weights once per pass over the data, at a learning rate set
+by hand and a momentum of 0.9. The \gls{sgd} of the present study used small
+batches and was tuned over 45 settings, a far stronger baseline.
+
+The repetition with \glspl{relu} confirmed that no algorithm generalised
+significantly better, at a Friedman probability value of 0.46, and the ranks on
+wall-clock time were identical to the ranks of the sigmoid study. The advantage of \gls{sgd} in work to target lost significance, with a
+probability value of 0.24, so the fast start of \gls{sgd} depended on the
+activation function. The \gls{relu} networks required more hidden units on seven
+problems, up to 96 on Sinc and Sin2D, because a piecewise linear network
+approximates a smooth curve with many linear pieces. The \glspl{relu} halved the
+error on Digits for all three algorithms, whereas the sigmoid units were better in five of the nine algorithm--problem
+pairs of the smooth problems Sinc, Sin2D and Friedman1.
+
+In summary, the optimal number of hidden units ranged from one to 24. \Gls{scg} was free of parameters in practice, whereas LeapFrog suffered from one
+interaction of parameters and \gls{sgd} was sensitive to the learning rate. No algorithm
+generalised significantly better across the nine problems. \Gls{sgd} was the
+fastest per unit of work, and the batch methods were the fastest in wall-clock
+time.
+
+\glsresetall
+
+\section{Conclusion}
+
+The study compared \gls{sgd}, \gls{scg} and LeapFrog for the training of feedforward
+neural networks with one hidden layer, on five classification and four function
+approximation problems. After the number of hidden units and the control
+parameters had been chosen on validation data, the algorithms were compared on 30
+fresh paired runs per problem under an equal budget of \glspl{cu}.
+
+No algorithm generalised significantly better across the nine problems.
+\Gls{sgd} attained a validation cost common to all three algorithms with
+significantly less work, but required
+significantly more wall-clock time. \Gls{scg} was insensitive to the control parameters over the grid tested, and
+the default parameters of \gls{scg} were statistically as good as the best
+setting on every problem. The tuned learning rate of \gls{sgd} lay close
+to the boundary of stability and failed on larger networks. LeapFrog failed to
+optimise the large Digits network because the step limit dominated the
+trajectory. \Gls{scg} was concluded to be the most
+practical algorithm for the problems studied, and the absence of a significant
+difference in generalisation held for \glspl{relu} as well.
+
+Future work could address four questions. A LeapFrog step limit that scales with
+the number of weights could remove the failure on large networks. A comparison over a
+range of budgets would show where the fast start of \gls{sgd} stops mattering. A
+learning rate that adapts to the curvature would strengthen the \gls{sgd} baseline.
+A cross-entropy cost function would test whether the conclusions depend on the cost
+function.
+
+\bibliographystyle{IEEEtranS}
+\bibliography{references}
+
+\end{document}

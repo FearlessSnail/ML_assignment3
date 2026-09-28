@@ -1,5 +1,26 @@
 out/
 
+# LaTeX build files
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.synctex(busy)
+*.xdv
+*.glsdefs
+*.acn
+*.acr
+*.alg
+*.glg
+*.glo
+*.gls
+*.ist
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
